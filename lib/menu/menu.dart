@@ -24,6 +24,24 @@ class MusicListBottomSheet extends StatefulWidget {
 class _MusicListBottomSheetState extends State<MusicListBottomSheet> {
   bool isFavoritesView = false; // 用于控制显示当前播放列表还是收藏列表
 
+  @override
+  void initState() {
+    super.initState();
+    widget.viewModel.addListener(_handleViewModelChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.viewModel.removeListener(_handleViewModelChanged);
+    super.dispose();
+  }
+
+  void _handleViewModelChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   // 新增方法：下载 krc 文件
   Future<void> downloadKrcFile(String songName) async {
     try {
@@ -70,9 +88,9 @@ class _MusicListBottomSheetState extends State<MusicListBottomSheet> {
                     child: Text(isFavoritesView ? '当前播放' : '我的收藏'),
                   ),
                   TextButton(
-                    onPressed: () {
+                    onPressed: () async {
                       // 调用 ViewModel 中的添加歌曲功能
-                      widget.viewModel.addSongFromDevice(context);
+                      await widget.viewModel.addSongFromDevice(context);
                     },
                     child: Text('添加歌曲'),
                   ),

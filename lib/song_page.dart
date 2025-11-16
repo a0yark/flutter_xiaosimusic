@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:convert';
 import 'LyricParser.dart';
@@ -19,27 +19,28 @@ class SongPage extends StatefulWidget {
 }
 
 class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
-  int currentSongIndex = 0; // 当前播放歌曲的索引
-  bool isSingleLoop = false; // 单曲循环状态
+  int currentSongIndex = 0; // 褰撳墠鎾斁姝屾洸鐨勭储寮?
+  bool isSingleLoop = false; // 鍗曟洸寰幆鐘舵€?
   bool isPlayEnd = false;
   bool isShuffle = false;
-  final PageController _pageController = PageController(); // 用于控制 PageView 的页面切换
+  final PageController _pageController = PageController(); // 鐢ㄤ簬鎺у埗 PageView 鐨勯〉闈㈠垏鎹?
   late AnimationController _rotationController;
   late Animation<double> _rotationAnimation;
   List<Map<String, dynamic>> lyrics = [];
   int currentLyricIndex = 0;
-  String singerName = "Luo Tian Yi"; // 初始化歌手名字
-  String coverImageUrl = 'lib/images/cover_art.jpg'; // 默认封面图片
+  String singerName = "Luo Tian Yi"; // 鍒濆鍖栨瓕鎵嬪悕瀛?
+  String coverImageUrl = 'lib/images/cover_art.jpg'; // 榛樿灏侀潰鍥剧墖
+  String? _lastSongPath;
 
   @override
   void initState() {
     super.initState();
-    // 设置 NotificationHelper 的 BuildContext
+    // 璁剧疆 NotificationHelper 鐨?BuildContext
     NotificationHelper.setContext(context);
-    // 初始化通知
+    // 鍒濆鍖栭€氱煡
     NotificationHelper.initialize();
 
-    // 初始化旋转动画控制器
+    // 鍒濆鍖栨棆杞姩鐢绘帶鍒跺櫒
     _rotationController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 10),
@@ -47,7 +48,13 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
     _rotationAnimation = Tween<double>(begin: 0, end: 2 * 3.1415926).animate(_rotationController);
 
     final audioProvider = Provider.of<AudioProvider>(context, listen: false);
-    // 监听播放进度
+    _lastSongPath = audioProvider.getCurrentFilePath;
+    if (_lastSongPath != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _refreshSongMetadata(_lastSongPath!);
+      });
+    }
+    // 鐩戝惉鎾斁杩涘害
     audioProvider.audioPlayer.positionStream.listen((position) {
       if (position >= (audioProvider.audioPlayer.duration ?? Duration.zero) && isPlayEnd) {
         if (isSingleLoop) {
@@ -63,28 +70,29 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
       updateCurrentLyricIndex(position.inMilliseconds);
     });
 
-    // 监听播放状态变化
+    // 鐩戝惉鎾斁鐘舵€佸彉鍖?
     audioProvider.addListener(() {
       if (audioProvider.isPlaying) {
         _rotationController.repeat();
       } else {
         _rotationController.stop();
       }
+      _handleNowPlayingChange(audioProvider);
     });
 
-    // 初始化时获取歌手名字和封面图片
+    // 鍒濆鍖栨椂鑾峰彇姝屾墜鍚嶅瓧鍜屽皝闈㈠浘鐗?
     _fetchSingerName();
     _fetchSongCoverImage();
   }
 
   @override
   void dispose() {
-    _pageController.dispose(); // 释放 PageController 资源
-    _rotationController.dispose(); // 释放动画控制器资源
+    _pageController.dispose(); // 閲婃斁 PageController 璧勬簮
+    _rotationController.dispose(); // 閲婃斁鍔ㄧ敾鎺у埗鍣ㄨ祫婧?
     super.dispose();
   }
 
-  // 切换到上一首歌
+  // 鍒囨崲鍒颁笂涓€棣栨瓕
   void previousSong() {
     final menuViewModel = Provider.of<MenuViewModel>(context, listen: false);
     final audioFiles = menuViewModel.getAudioFiles();
@@ -99,7 +107,7 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
     }
   }
 
-  // 切换到下一首歌
+  // 鍒囨崲鍒颁笅涓€棣栨瓕
   void nextSong() {
     final menuViewModel = Provider.of<MenuViewModel>(context, listen: false);
     final audioFiles = menuViewModel.getAudioFiles();
@@ -112,31 +120,21 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
   }
 
   // 播放当前歌曲
-  void playCurrentSong() async {
+  Future<void> playCurrentSong() async {
     final menuViewModel = Provider.of<MenuViewModel>(context, listen: false);
     final audioFiles = menuViewModel.getAudioFiles();
     if (audioFiles.isNotEmpty) {
       final currentSongPath = audioFiles[currentSongIndex];
       final audioProvider = Provider.of<AudioProvider>(context, listen: false);
-      audioProvider.togglePlay(currentSongPath);
+      await audioProvider.togglePlay(currentSongPath);
       updateNotification(currentSongPath);
-
-      String songTitle = currentSongPath.split('/').last.split('.').first;
-      String lyricUrl = 'https://api.52vmy.cn/api/music/lrc?msg=$songTitle&n=1';
-      final parsedLyrics = await LyricParser.parseLyricsFromUrl(lyricUrl);
-      setState(() {
-        lyrics = parsedLyrics;
-        currentLyricIndex = 0;
-      });
-
-      // 更新歌手名字和封面图片
-      await _fetchSingerName();
-      await _fetchSongCoverImage();
-
+      _lastSongPath = currentSongPath;
+      await _refreshSongMetadata(currentSongPath);
     }
   }
 
-  // 提取更新通知的方法
+
+  // 鎻愬彇鏇存柊閫氱煡鐨勬柟娉?
   void updateNotification(String songPath) {
     NotificationHelper.showNotification(
       id: 1,
@@ -146,7 +144,41 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
     );
   }
 
-  // 更新当前显示的歌词索引
+  void _handleNowPlayingChange(AudioProvider audioProvider) {
+    final newPath = audioProvider.getCurrentFilePath;
+    if (newPath == null || newPath == _lastSongPath) {
+      return;
+    }
+    _lastSongPath = newPath;
+
+    final menuViewModel = Provider.of<MenuViewModel>(context, listen: false);
+    final audioFiles = menuViewModel.getAudioFiles();
+    final newIndex = audioFiles.indexOf(newPath);
+    if (newIndex != -1 && mounted) {
+      setState(() {
+        currentSongIndex = newIndex;
+      });
+    }
+
+    _refreshSongMetadata(newPath);
+  }
+
+  Future<void> _refreshSongMetadata(String songPath) async {
+    final songTitle = songPath.split('/').last.split('.').first;
+    final hasLyrics = await _fetchLyrics(songTitle);
+    if (!hasLyrics && mounted) {
+      setState(() {
+        lyrics = [
+          {'time': 0, 'lyric': '暂无歌词'},
+        ];
+        currentLyricIndex = 0;
+      });
+    }
+    await _fetchSingerName(songTitle);
+    await _fetchSongCoverImage(songTitle);
+  }
+
+  // 鏇存柊褰撳墠鏄剧ず鐨勬瓕璇嶇储寮?
   void updateCurrentLyricIndex(int currentTime) {
     for (int i = 0; i < lyrics.length; i++) {
       if (i == lyrics.length - 1 || (lyrics[i]['time'] <= currentTime && lyrics[i + 1]['time'] > currentTime)) {
@@ -160,7 +192,7 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
     }
   }
 
-  // 格式化时长
+  // 鏍煎紡鍖栨椂闀?
   String formatDuration(Duration? duration) {
     if (duration == null) return '0:00';
     String twoDigits(int n) => n.toString().padLeft(2, '0');
@@ -169,18 +201,21 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
     return '${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds';
   }
 
-  // 获取歌手名字
-  Future<void> _fetchSingerName() async {
-    final menuViewModel = Provider.of<MenuViewModel>(context, listen: false);
-    final audioFiles = menuViewModel.getAudioFiles();
-    if (audioFiles.isEmpty) return;
-    String songTitle = audioFiles[currentSongIndex].split('/').last.split('.').first;
-    String apiUrl = 'http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword=$songTitle&page=1';
+  // 鑾峰彇姝屾墜鍚嶅瓧
+  Future<void> _fetchSingerName([String? songTitle]) async {
+    String? resolvedTitle = songTitle;
+    if (resolvedTitle == null) {
+      final menuViewModel = Provider.of<MenuViewModel>(context, listen: false);
+      final audioFiles = menuViewModel.getAudioFiles();
+      if (audioFiles.isEmpty) return;
+      resolvedTitle = audioFiles[currentSongIndex].split('/').last.split('.').first;
+    }
+    String apiUrl = 'http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword=$resolvedTitle&page=1';
     try {
       final response = await http.get(Uri.parse(apiUrl));
       if (response.statusCode == 200) {
         String responseBody = response.body;
-        // 使用正则表达式提取第一个歌手名字
+        // 浣跨敤姝ｅ垯琛ㄨ揪寮忔彁鍙栫涓€涓瓕鎵嬪悕瀛?
         RegExp regex = RegExp(r'"singername":"([^"]+)"');
         Match? match = regex.firstMatch(responseBody);
         if (match != null) {
@@ -196,21 +231,24 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
     }
   }
 
-  // 获取歌曲封面图片
-  // 获取歌曲封面图片
-  Future<void> _fetchSongCoverImage() async {
-    final menuViewModel = Provider.of<MenuViewModel>(context, listen: false);
-    final audioFiles = menuViewModel.getAudioFiles();
-    if (audioFiles.isEmpty) return;
+  // 鑾峰彇姝屾洸灏侀潰鍥剧墖
+  // 鑾峰彇姝屾洸灏侀潰鍥剧墖
+  Future<void> _fetchSongCoverImage([String? songTitle]) async {
+    String? resolvedTitle = songTitle;
+    if (resolvedTitle == null) {
+      final menuViewModel = Provider.of<MenuViewModel>(context, listen: false);
+      final audioFiles = menuViewModel.getAudioFiles();
+      if (audioFiles.isEmpty) return;
+      resolvedTitle = audioFiles[currentSongIndex].split('/').last.split('.').first;
+    }
 
-    String songTitle = audioFiles[currentSongIndex].split('/').last.split('.').first;
-    String apiUrl = 'https://mcapi.muwl.xyz/api/music_163.php?msg=$songTitle&n=1';
+    String apiUrl = 'https://mcapi.muwl.xyz/api/music_163.php?msg=$resolvedTitle&n=1';
 
     try {
       final response = await http.get(Uri.parse(apiUrl));
 
       if (response.statusCode == 200) {
-        // 清理 Content-Type 字段
+        // 娓呯悊 Content-Type 瀛楁
         if (response.headers['content-type'] != null) {
           response.headers['content-type'] = response.headers['content-type']!.split(';')[0];
         }
@@ -220,64 +258,103 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
           String pictureUrl = data['img'].toString().trim();
           if (pictureUrl.isNotEmpty && pictureUrl.startsWith('http')) {
             setState(() {
-              coverImageUrl = pictureUrl; // 更新封面图片 URL
+              coverImageUrl = pictureUrl; // 鏇存柊灏侀潰鍥剧墖 URL
             });
           } else {
             print('Invalid picture URL: $pictureUrl');
             setState(() {
-              coverImageUrl = 'lib/images/cover_art.jpg'; // 使用默认图片
+              coverImageUrl = 'lib/images/cover_art.jpg'; // 浣跨敤榛樿鍥剧墖
             });
           }
         } else {
           print('No cover image found for the song.');
           setState(() {
-            coverImageUrl = 'lib/images/cover_art.jpg'; // 使用默认图片
+            coverImageUrl = 'lib/images/cover_art.jpg'; // 浣跨敤榛樿鍥剧墖
           });
         }
       } else {
         print('Failed to fetch cover image: ${response.statusCode}');
         setState(() {
-          coverImageUrl = 'lib/images/cover_art.jpg'; // 使用默认图片
+          coverImageUrl = 'lib/images/cover_art.jpg'; // 浣跨敤榛樿鍥剧墖
         });
       }
     } catch (e) {
       print('Failed to fetch cover image: $e');
       setState(() {
-        coverImageUrl = 'lib/images/cover_art.jpg'; // 使用默认图片
+        coverImageUrl = 'lib/images/cover_art.jpg'; // 浣跨敤榛樿鍥剧墖
       });
     }
   }
-  Future<void> _fetchLyrics([String? songTitle]) async {
-    final menuViewModel = Provider.of<MenuViewModel>(context, listen: false);
-    final audioFiles = menuViewModel.getAudioFiles();
-    if (audioFiles.isEmpty) return;
+  Future<bool> _fetchLyrics([String? songTitle]) async {
+    String? resolvedTitle = songTitle;
+    if (resolvedTitle == null) {
+      final menuViewModel = Provider.of<MenuViewModel>(context, listen: false);
+      final audioFiles = menuViewModel.getAudioFiles();
+      if (audioFiles.isEmpty) return false;
+      resolvedTitle = audioFiles[currentSongIndex].split('/').last.split('.').first;
+    }
 
-    songTitle ??= audioFiles[currentSongIndex].split('/').last.split('.').first;
-    String lyricUrl = 'https://api.52vmy.cn/api/music/lrc?msg=$songTitle&n=1';
+    String lyricUrl = 'https://api.52vmy.cn/api/music/lrc?msg=$resolvedTitle&n=1';
 
     try {
       final response = await http.get(Uri.parse(lyricUrl));
       if (response.statusCode == 200) {
-        final parsedLyrics = await LyricParser.parseLyricsFromUrl(lyricUrl);
-        setState(() {
-          lyrics = parsedLyrics;
-          currentLyricIndex = 0;
-        });
+        final parsedLyrics = LyricParser.parseLyrics(response.body);
+        if (mounted) {
+          setState(() {
+            lyrics = parsedLyrics;
+            currentLyricIndex = 0;
+          });
+        }
+        return parsedLyrics.isNotEmpty;
       } else {
         print('Failed to fetch lyrics: ${response.statusCode}');
+        return false;
       }
     } catch (e) {
       print('Failed to fetch lyrics: $e');
+      if (mounted) {
+        setState(() {
+          lyrics = [];
+          currentLyricIndex = 0;
+        });
+      }
+      return false;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final menuViewModel = Provider.of<MenuViewModel>(context, listen: false);
+    final menuViewModel = context.watch<MenuViewModel>();
+    final audioProvider = context.watch<AudioProvider>();
     final audioFiles = menuViewModel.getAudioFiles();
-    final currentSongPath = audioFiles.isNotEmpty ? audioFiles[currentSongIndex] : 'assets/music/光与影的对白.flac';
+    final hasSongs = audioFiles.isNotEmpty;
+    final safeIndex = hasSongs ? currentSongIndex.clamp(0, audioFiles.length - 1) : 0;
+
+    int derivedIndex = safeIndex;
+    if (hasSongs) {
+      final playingPath = audioProvider.getCurrentFilePath;
+      if (playingPath != null) {
+        final playingIndex = audioFiles.indexOf(playingPath);
+        if (playingIndex != -1) {
+          derivedIndex = playingIndex;
+        }
+      }
+    }
+
+    if (hasSongs && derivedIndex != currentSongIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            currentSongIndex = derivedIndex;
+          });
+        }
+      });
+    }
+
+    final normalizedIndex = hasSongs ? derivedIndex.clamp(0, audioFiles.length - 1) : 0;
+    final currentSongPath = hasSongs ? audioFiles[normalizedIndex] : 'assets/music/1.mp3';
     // 监听 AudioProvider 的状态变化
-    final audioProvider = Provider.of<AudioProvider>(context, listen: true);
     final duration = audioProvider.audioPlayer.duration;
 
     return Scaffold(
@@ -302,7 +379,7 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
                             size: 32,
                           ),
                             onPressed: () {
-                              // 点击返回按钮时跳转到 AboutPage
+                              // 鐐瑰嚮杩斿洖鎸夐挳鏃惰烦杞埌 AboutPage
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(builder: (context) => AboutPage()),
@@ -342,7 +419,7 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
                 const SizedBox(height: 50),
                 NeuBox(
                   child: SizedBox(
-                    height: 300, // 根据实际情况调整高度
+                    height: 300, // 鏍规嵁瀹為檯鎯呭喌璋冩暣楂樺害
                     child: PageView(
                       controller: _pageController,
                       children: [
@@ -354,13 +431,13 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
                               child: Center(
                                 child: ClipOval(
                                   child: SizedBox(
-                                    width: 250, // 设置图片宽度
-                                    height: 250, // 设置图片高度，与宽度相等以保证圆形
+                                    width: 250, // 璁剧疆鍥剧墖瀹藉害
+                                    height: 250, // 璁剧疆鍥剧墖楂樺害锛屼笌瀹藉害鐩哥瓑浠ヤ繚璇佸渾褰?
                                     child: Image.network(
-                                      coverImageUrl, // 使用封面图片
+                                      coverImageUrl, // 浣跨敤灏侀潰鍥剧墖
                                       fit: BoxFit.cover,
                                       errorBuilder: (context, error, stackTrace) {
-                                        // 如果图片加载失败，使用默认图片
+                                        // 濡傛灉鍥剧墖鍔犺浇澶辫触锛屼娇鐢ㄩ粯璁ゅ浘鐗?
                                         return Image.asset(
                                           'lib/images/cover_art.jpg',
                                           fit: BoxFit.cover,
@@ -399,7 +476,7 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
                         children: [
                           const SizedBox(height: 20),
                           Text(
-                            singerName, // 显示歌手名字
+                            singerName, // 鏄剧ず姝屾墜鍚嶅瓧
                             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.grey.shade700),
                           ),
                           Text(
@@ -425,7 +502,7 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
                         return Text(formatDuration(position));
                       },
                     ),
-                    // 随机功能按钮
+                    // 闅忔満鍔熻兘鎸夐挳
                     IconButton(
                       icon: Icon(
                         Icons.shuffle,
@@ -435,15 +512,8 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
                         setState(() {
                           isShuffle = !isShuffle;
                           isSingleLoop = false;
-                          if (isShuffle) {
-                            audioProvider.playRandomSong();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('随机播放模式已开启')),
-                            );
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('随机播放模式已关闭')),
-                            );
+                          if (isShuffle && audioFiles.isNotEmpty) {
+                            audioProvider.playRandomSong(audioFiles);
                           }
                         });
                       },
@@ -457,15 +527,6 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
                         setState(() {
                           isSingleLoop = !isSingleLoop;
                           isShuffle = false;
-                          if (isSingleLoop) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('单曲循环模式已开启')),
-                            );
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('单曲循环模式已关闭')),
-                            );
-                          }
                         });
                       },
                     ),
@@ -485,13 +546,13 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
                     return NeuBox(
                       child: SliderTheme(
                         data: SliderTheme.of(context).copyWith(
-                          trackHeight: 10, // 设置进度条高度，使其更粗
-                          activeTrackColor: Colors.blue.shade200, // 进度条已播放部分颜色
-                          inactiveTrackColor: Colors.grey[300], // 进度条未播放部分颜色，浅灰色
-                          thumbColor: Colors.blue.shade200, // 滑块颜色
-                          overlayColor: Colors.blue.shade200.withOpacity(0.2), // 滑块点击时的覆盖颜色
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8), // 滑块形状和大小
-                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 16), // 滑块点击时覆盖层的大小
+                          trackHeight: 10, // 璁剧疆杩涘害鏉￠珮搴︼紝浣垮叾鏇寸矖
+                          activeTrackColor: Colors.blue.shade200, // 杩涘害鏉″凡鎾斁閮ㄥ垎棰滆壊
+                          inactiveTrackColor: Colors.grey[300], // 杩涘害鏉℃湭鎾斁閮ㄥ垎棰滆壊锛屾祬鐏拌壊
+                          thumbColor: Colors.blue.shade200, // 婊戝潡棰滆壊
+                          overlayColor: Colors.blue.shade200.withOpacity(0.2), // 婊戝潡鐐瑰嚮鏃剁殑瑕嗙洊棰滆壊
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8), // 婊戝潡褰㈢姸鍜屽ぇ灏?
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 16), // 婊戝潡鐐瑰嚮鏃惰鐩栧眰鐨勫ぇ灏?
                         ),
                         child: Slider(
                           value: percent.clamp(0.0, 1.0).toDouble(),
@@ -504,7 +565,7 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
                     );
                   },
                 ),
-                const SizedBox(height: 40), // 增加进度条与按钮之间的间距
+                const SizedBox(height: 40), // 澧炲姞杩涘害鏉′笌鎸夐挳涔嬮棿鐨勯棿璺?
                 SizedBox(
                   height: 60,
                   child: Row(
@@ -523,7 +584,7 @@ class _SongPageState extends State<SongPage> with TickerProviderStateMixin {
                           padding: const EdgeInsets.symmetric(horizontal: 20),
                           child: NeuBox(
                             child: IconButton(
-                              //播放按钮
+                              //鎾斁鎸夐挳
                               icon: Icon(
                                 audioProvider.isPlaying ? Icons.pause : Icons.play_arrow,
                                 size: 32,

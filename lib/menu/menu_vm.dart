@@ -1,7 +1,9 @@
-import 'dart:io';
+﻿import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class MenuViewModel extends ChangeNotifier {
   List<String> audioFiles = [];
@@ -16,14 +18,14 @@ class MenuViewModel extends ChangeNotifier {
   Future<void> _initializeDefaultFiles() async {
     // 初始化默认的内置音乐文件
     final defaultFiles = [
-      'assets/music/光与影的对白.flac', // 示例内置音乐文件路径
+      'assets/music/1.mp3', // 示例内置音乐文件路径
       // 可以根据需要添加更多默认文件
     ];
 
     // 检查是否已经加载过默认文件
     if (audioFiles.isEmpty) {
       audioFiles.addAll(defaultFiles);
-      isFavorited.addAll(defaultFiles.map((file) => MapEntry(file, false)) as Map<String, bool>);
+      isFavorited.addEntries(defaultFiles.map((file) => MapEntry(file, false)));
       await _saveAudioFiles(); // 保存到本地文件
     }
   }
@@ -53,54 +55,59 @@ class MenuViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<String?> _showFilePathInputDialog(BuildContext context) async {
-    String filePath = '';
-    return showDialog<String>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text("添加音频文件"),
-          content: TextField(
-            onChanged: (value) {
-              filePath = value;
-            },
-            decoration: InputDecoration(hintText: "请输入音频文件路径"),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, filePath),
-              child: Text("确定"),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, null),
-              child: Text("取消"),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   Future<void> addSongFromDevice(BuildContext context) async {
-    final filePath = await _showFilePathInputDialog(context);
-    if (filePath == null || filePath.isEmpty) {
-      return;
-    }
+    final messenger = ScaffoldMessenger.of(context);
 
-    final file = File(filePath);
-    if (!await file.exists()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("文件不存在: $filePath")),
+    if (!await _ensureStoragePermission()) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text("没有存储权限，无法添加歌曲")),
       );
       return;
     }
 
-    audioFiles.add(filePath);
-    isFavorited[filePath] = false;
-    await _saveAudioFiles(); // 保存歌曲列表
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("添加成功: $filePath")),
-    );
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        allowedExtensions: ['mp3', 'flac', 'wav', 'aac', 'm4a', 'ogg'],
+        type: FileType.custom,
+        withData: false,
+      );
+
+      if (result == null || result.paths.isEmpty) {
+        return;
+      }
+
+      final List<String> newFiles = [];
+      for (final path in result.paths) {
+        if (path == null) continue;
+        final file = File(path);
+        if (!await file.exists()) {
+          continue;
+        }
+        if (!audioFiles.contains(path)) {
+          audioFiles.add(path);
+          isFavorited[path] = false;
+          newFiles.add(path);
+        }
+      }
+
+      if (newFiles.isEmpty) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text("未选择新的歌曲")),
+        );
+        return;
+      }
+
+      await _saveAudioFiles(); // 保存歌曲列表
+      notifyListeners();
+      messenger.showSnackBar(
+        SnackBar(content: Text("已添加 ${newFiles.length} 首歌曲")),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text("选择文件失败: $e")),
+      );
+    }
   }
 
   Future<void> _saveAudioFiles() async {
@@ -139,9 +146,9 @@ class MenuViewModel extends ChangeNotifier {
 
   // 新增删除歌曲的方法
   Future<void> deleteSong(String filePath) async {
-    if (filePath.startsWith('assets/music/光与影的对白.flac')) {
+    if (filePath.startsWith('assets/music/1.mp3')) {
       // 如果是内置歌曲，不进行删除操作
-      _showToast("内置歌曲不能删除喵");
+      _showToast("内置歌曲不能删除哦");
       return;
     }
     // 从 audioFiles 列表中移除歌曲
@@ -154,15 +161,35 @@ class MenuViewModel extends ChangeNotifier {
     await _saveFavorites();
     notifyListeners();
   }
+
+  Future<bool> _ensureStoragePermission() async {
+    if (!Platform.isAndroid) {
+      return true;
+    }
+
+    final storageStatus = await Permission.storage.request();
+    if (storageStatus.isGranted) {
+      return true;
+    }
+
+    final audioStatus = await Permission.audio.request();
+    if (audioStatus.isGranted) {
+      return true;
+    }
+
+    final manageStatus = await Permission.manageExternalStorage.request();
+    return manageStatus.isGranted;
+  }
 }
+
 void _showToast(String message) {
-Fluttertoast.showToast(
-msg: message,
-toastLength: Toast.LENGTH_SHORT,
-gravity: ToastGravity.BOTTOM,
-timeInSecForIosWeb: 1,
-backgroundColor: Colors.black87,
-textColor: Colors.white,
-fontSize: 16.0,
-);
+  Fluttertoast.showToast(
+    msg: message,
+    toastLength: Toast.LENGTH_SHORT,
+    gravity: ToastGravity.BOTTOM,
+    timeInSecForIosWeb: 1,
+    backgroundColor: Colors.black87,
+    textColor: Colors.white,
+    fontSize: 16.0,
+  );
 }
